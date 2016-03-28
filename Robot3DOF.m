@@ -9,7 +9,7 @@ syms q1 q2 q3
 %%3DoFs robot
 L(1) = Link([0 0 1 0]); L(1).qlim = [-2*pi/3,2*pi/3];
 L(2) = Link([0 0 1 0]); L(2).qlim = [-2*pi/3,2*pi/3]; 
-L(3) = Link([0 0 1 0]); L(3).qlim = [-2*pi/3,2*pi/3]; 
+L(3) = Link([0 0 1.5 0]); L(3).qlim = [-2*pi/3,2*pi/3]; 
 
 qdotlim = [-pi,pi;-pi,pi;-pi,pi];
 
@@ -22,7 +22,7 @@ q_2 = [pi/2,pi/2,pi/2];
 %q_2 = [2*pi/6,2*pi/6,2*pi/6];
 
 R3 = SerialLink(L,'name','R3');
-%R3.plot(q_0);
+%R3.plot(q_1);
 
 %Forward kinematics
 FTlb = R3.fkine(q_lb);
@@ -41,8 +41,8 @@ qmax = [L(1).qlim(:,2),L(2).qlim(:,2),L(3).qlim(:,2)];
 % end
 
 %% Cartesian Trajectory
-T1 = transl(1, 2,0);
-T2 = transl(1, -2,0);
+T1 = transl(2, 0,0);
+T2 = transl(-2, 1.5,0);
 n = 51;
 
 traj = ctraj(T1,T2,n);
@@ -64,10 +64,17 @@ Pend_velocity = [xtD, ytD];
 % q = R3.ikine(traj(:,:,1),[],[1 1 0 0 0 1]);
 % R3.plot(q);
 factor = 1;
-k = -1;
+k = -0.001;
+alpha = -0.05;
+error = 1;
+j = 0;
 
 tic
+while error
+    j = j+1;
+    k = -0.000001*j
 for i = 1:n  
+    
     if i == 1
         q = q_1;
         FTstart = R3.fkine(q);
@@ -84,34 +91,50 @@ for i = 1:n
     Jacob = Jacob(1:2,:);
     
     while norm(e)>0.001
-        delta_q = pinv(Jacob) * transpose(e);
+        %% Gradient Projection Method
+        %-------------- Gradient function of joint limit functionm Hq----------
+        gradHq =  [((qmax(1) - qmin(1))^2*(2*q(1)- qmax(1)- qmin(1)))/((qmax(1) -q(1))^2*(q(1) - qmin(1))^2)
+            ((qmax(2) - qmin(2))^2*(2*q(2)- qmax(2)- qmin(2)))/((qmax(2) -q(2))^2*(q(2) - qmin(2))^2)
+            ((qmax(3) - qmin(3))^2*(2*q(3)- qmax(3)- qmin(3)))/((qmax(3) -q(3))^2*(q(3) - qmin(3))^2)];
+        %----------------------------------------------------------------------
+        
+        %% Dynamic selection of factor k
+%         if norm((eye(numel(q)) - pinv(Jacob) *Jacob ) * gradHq) ~= 0
+%             k = alpha * norm (pinv(Jacob) * transpose(e))/ ...
+%             (norm (pinv(Jacob) * transpose(e))+norm((eye(numel(q)) - pinv(Jacob) *Jacob ) * gradHq));
+%         else
+%             k =0;
+%         end
+        
+        qhdot = k*(eye(numel(q)) - pinv(Jacob) *Jacob ) * gradHq;
+        qsdot = pinv(Jacob) * transpose(e);
+        delta_q =  qsdot + qhdot;
         q = q + factor * transpose(delta_q);
         Jacob = R3.jacob0(q,'trans');
         Jacob = Jacob(1:2,:);
         FTP = R3.fkine(q);
         P =  transpose(FTP(1:2,4));%, tr2rpy(FTP)]
         e = Pend - P;
-    end
-    
-    %R3.plot(q);
+
+    end 
+
+    q_plot(i,:) = q;
     if q(1) > qmax(1) || q(2) > qmax(2) || q(3) > qmax(3) ||...
-            q(1) < qmin(1) || q(2) < qmin(2) || q(3) < qmin(3)
-           display('Exceed the boundary, Calculation process stopped'); %break;
+            q(1) < qmin(1) || q(2) < qmin(2) || q(3) < qmin(3) ...
+            || det(Jacob*Jacob') == 0
+        display('Exceed the boundary, Calculation process stopped');
+        
+        error = 1; break;        
     end
     
-    
-%% Gradient Projection Method
-%     x0 = q';
-%     [q, minf] = gradientprojection(x0,200,1e-3,1,1,100,1e-4,1);
-%     q = q'
-    
-    R3.plot(q);
-    
-    
+    if i == n
+    error = 0;
+    end
+end
 end
 toc
 
-
+R3.plot(q_plot);
 
 %% Obtain required matrices and vectors for optimization
 % M = numel(q);
@@ -132,5 +155,10 @@ toc
 %     %[x,minf] = minRosen(objfunc,A,b,x0,[q1 q2 q3],eps);
     
 
-    
+ %% Gradient Projection Method
+%      x0 = q';
+%      d = kfactor*(eye(numel(x)) - pinv(Jacob)*Jacob)*gradx;
+%      q = q'
+%     
+%     R3.plot(q);   
     
