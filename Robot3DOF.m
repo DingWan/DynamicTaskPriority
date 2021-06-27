@@ -1,4 +1,3 @@
-%clear
 clc
 clf
 clear
